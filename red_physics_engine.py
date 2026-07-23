@@ -32,8 +32,9 @@ class REDPhysicsEngine:
         try:
             df = pd.read_csv(self.csv_path)
             df.columns = df.columns.str.strip()
-            month_cols = ["Jan_Pot", "Feb_Pot", "Mar_Pot", "Apr_Pot", "May_Pot", "Jun_Pot",
-                          "Jul_Pot", "Aug_Pot", "Sep_Pot", "Oct_Pot", "Nov_Pot", "Dec_Pot"]
+            months = ["January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November", "December"]
+            month_cols = [f"Theoretical_MW_{m}" for m in months]
             month_indices = np.linspace(0, 11, 12)
 
             for _, row in df.iterrows():
@@ -58,7 +59,6 @@ class REDPhysicsEngine:
         dC_dx = dde.grad.jacobian(y, x, i=0, j=0)
         dPhi_dx = dde.grad.jacobian(y, x, i=1, j=0)
 
-        # Second derivatives with correct component specification[cite: 1]
         d2C_dx2 = dde.grad.hessian(y, x, component=0, i=0, j=0)
         d2Phi_dx2 = dde.grad.hessian(y, x, component=1, i=0, j=0)
 
@@ -70,14 +70,12 @@ class REDPhysicsEngine:
     def nernst_potential(self, c_high, c_low, alpha=1.0, z=1.0):
         """
         Calculates E_cell = alpha * (RT/zF) * ln(c_high / c_low).
-        Reuses thermal_voltage for consistency.[cite: 1]
         """
         return alpha * (self.thermal_voltage / z) * np.log(c_high / c_low)
 
     def internal_resistance(self, concentration, thickness=0.001, z=1.0):
         """
         Models internal cell-pair resistance (R_lc) in Ω·cm².
-        Formula: R_lc = thickness / (z * F * mu * concentration)[cite: 1]
         """
         conductivity = z * self.F * self.mu * concentration
         resistance_m2 = thickness / conductivity
@@ -87,7 +85,6 @@ class REDPhysicsEngine:
         return self.interp_funcs[river_id](t) if river_id in self.interp_funcs else None
 
     def get_data_by_date(self, river_id, day_of_year):
-        """Maps calendar day (1-365) to interpolation index (0-11).[cite: 1]"""
         t = ((day_of_year - 1) / 365) * 11
         return self.get_data_at_time(river_id, t)
 
@@ -99,19 +96,7 @@ class REDPhysicsEngine:
 
 if __name__ == "__main__":
     engine = REDPhysicsEngine()
-
     print("\n--- Blue-Twin AI Physics Engine Sanity Check ---")
     print(f"Diffusion Coefficient (D): {engine.D} m²/s")
     print(f"Derived Ionic Mobility (mu): {engine.mu:.2e} m²/(V·s)")
     print(f"Thermal Voltage (RT/F): {engine.thermal_voltage * 1000:.2f} mV")
-
-    c_sea = 599.0
-    c_river = 8.5
-    v_nernst = engine.nernst_potential(c_sea, c_river)
-    print(f"\nNernst Potential (c_high={c_sea}, c_low={c_river}): {v_nernst * 1000:.2f} mV")
-
-    r_dilute = engine.internal_resistance(concentration=c_river)
-    r_concentrated = engine.internal_resistance(concentration=c_sea)
-    print(f"Internal Resistance - Dilute Compartment (C={c_river}): {r_dilute:.2f} Ω·cm²")
-    print(f"Internal Resistance - Concentrated Compartment (C={c_sea}): {r_concentrated:.2f} Ω·cm²")
-    print(f"Ratio (Dilute / Concentrated): {r_dilute / r_concentrated:.1f}x")
