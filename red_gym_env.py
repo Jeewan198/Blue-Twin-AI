@@ -27,8 +27,9 @@ class REDEnv(gym.Env):
     BASE_SEAWATER_CONC = 600.0       # mol/m^3 (~mM numerically equivalent), standard reference seawater
     BASE_RIVER_CONC = 20.0           # mol/m^3, standard reference river water baseline
     MIN_RIVER_CONC = 1.0             # floor to avoid log(0) / division-by-zero in Nernst calc
-    POTENTIAL_SCALE_DIVISOR = 100.0  # scales MW-range theoretical potential into the reward's rough magnitude
-    FLOW_RATIO_PENALTY_WEIGHT = 0.1  # penalises extreme deviation of flow_ratio from the neutral value of 1.0
+    POTENTIAL_SCALE_DIVISOR = 100.0  # retained for reference; superseded by dataset-scaled normalisation below
+    POWER_SCALE = 1.0e4              # brings power_density (~1e-5 to 1e-4) into a comparable range to the penalty
+    FLOW_RATIO_PENALTY_WEIGHT = 0.01 # reduced from 0.1 -- see reward-scaling note in step()
 
     def __init__(self, csv_path="ARA24_Clean_Master_Enhanced.csv", max_steps=365):
         super().__init__()
@@ -111,7 +112,19 @@ class REDEnv(gym.Env):
         # make resistance constant regardless of the agent's action.
         resistance = self.physics_engine.internal_resistance(concentration=c_low)
 
-        power_output = (nernst_e ** 2 / resistance) * extraction_factor * (base_potential / self.POTENTIAL_SCALE_DIVISOR)
+        # power_density (V^2 / ohm*cm^2) is inherently tiny for this system (~1e-5 to
+        # 1e-4), verified numerically across the full flow_ratio range. Left unscaled,
+        # it was ~1000-10,000x smaller than FLOW_RATIO_PENALTY_WEIGHT * (flow_ratio-1)^2,
+        # meaning the agent could only ever learn to minimise the penalty term and never
+        # actually saw the physics signal it was supposed to optimise (confirmed by
+        # explained_variance staying at ~0 throughout a full training run). POWER_SCALE
+        # brings power_density into a comparable O(0.1-1) range; base_potential is now
+        # normalised against the dataset's actual max (self.max_potential, computed at
+        # init) instead of an arbitrary /100 divisor that left huge, uncontrolled
+        # variance between small and large rivers.
+        power_density = (nernst_e ** 2) / resistance
+        potential_norm = min(max(base_potential / self.max_potential, 0.0), 1.0)
+        power_output = power_density * self.POWER_SCALE * extraction_factor * potential_norm
         power_output = max(0.0, power_output)
 
         reward = power_output - self.FLOW_RATIO_PENALTY_WEIGHT * (flow_ratio - 1.0) ** 2
@@ -122,6 +135,7 @@ class REDEnv(gym.Env):
         obs = self._get_observation(day_of_year, c_low=c_low)
         info = {
             "power_output": power_output,
+            "power_density": power_density,
             "nernst_potential": nernst_e,
             "internal_resistance": resistance,
             "day": day_of_year,
