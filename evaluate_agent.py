@@ -120,3 +120,12 @@ if __name__ == "__main__":
               "Check the other path if you expected both to exist.")
     else:
         print("\nNeither checkpoint was found. Check your 'models/' directory paths.")
+
+    if all_results:
+        import json
+        import os
+        os.makedirs("./results", exist_ok=True)
+        output_path = "./results/evaluation_results.json"
+        with open(output_path, "w") as f:
+            json.dump(all_results, f, indent=2)
+        print(f"\nSaved evaluation results to {output_path} for use by visualize_results.py")
