@@ -77,7 +77,7 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
     print(f"Trained Agent Mean Reward:   {mean_agent_reward:.4f}")
     print(f"Static Baseline Mean Reward: {mean_base_reward:.4f}")
     # NOTE: 'power_output' is the reward-function's internal, dimensionless
-    # power-density-based term (see red_env.py step()) -- NOT real-world kWh.
+    # power-density-based term (see red_gym_env.py step()) -- NOT real-world kWh.
     # Do not report this as kWh in your dissertation without deriving a proper
     # unit conversion first.
     print(f"Trained Agent Mean Power (model units): {mean_agent_power:.4f}")
@@ -94,9 +94,14 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
 
 
 if __name__ == "__main__":
+    # Original (v1) checkpoints, plus the new v2 experiment (per-river reward
+    # normalisation + entropy bonus + LR decay). Any path not found is skipped
+    # automatically -- comment out ones you don't have / don't want to re-run.
     checkpoints = {
         "best_model": "./models/best_model/best_model.zip",
         "final_model": "./models/ppo_red_agent_final.zip",
+        "best_model_v2": "./models/best_model_v2/best_model.zip",
+        "final_model_v2": "./models/ppo_red_agent_v2_final.zip",
     }
 
     all_results = {}
@@ -107,19 +112,20 @@ if __name__ == "__main__":
         except FileNotFoundError:
             print(f"  Skipped -- file not found at {path}")
 
-    if len(all_results) == 2:
-        best_power = np.mean(all_results["best_model"]["agent_power_output"])
-        final_power = np.mean(all_results["final_model"]["agent_power_output"])
+    if len(all_results) >= 2:
         print(f"\n{'='*60}\nCheckpoint comparison\n{'='*60}")
-        print(f"best_model mean power:  {best_power:.4f}")
-        print(f"final_model mean power: {final_power:.4f}")
-        winner = "best_model" if best_power >= final_power else "final_model"
-        print(f"Recommended checkpoint for your Evaluation chapter: {winner}")
+        summary = {
+            label: np.mean(r["agent_power_output"])
+            for label, r in all_results.items()
+        }
+        for label, power in sorted(summary.items(), key=lambda kv: kv[1], reverse=True):
+            print(f"{label:20s} mean power: {power:.4f}")
+        winner = max(summary, key=summary.get)
+        print(f"\nRecommended checkpoint for your Evaluation chapter: {winner}")
     elif len(all_results) == 1:
-        print("\nOnly one checkpoint was found -- comparison skipped. "
-              "Check the other path if you expected both to exist.")
+        print("\nOnly one checkpoint was found -- comparison skipped.")
     else:
-        print("\nNeither checkpoint was found. Check your 'models/' directory paths.")
+        print("\nNo checkpoints were found. Check your 'models/' directory paths.")
 
     if all_results:
         import json
