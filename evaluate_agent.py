@@ -106,6 +106,32 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
         improvement_pct = float("nan")
         print("WARNING: baseline mean power is exactly 0 -- improvement % is undefined.")
 
+    # Per-episode improvement ratios -- more informative than the single mean,
+    # since a mean here can be dominated by a few low-baseline-power episodes
+    # with huge relative (but small absolute) swings.
+    per_episode_pct = []
+    for a, b in zip(agent_power_output, baseline_power_output):
+        per_episode_pct.append(((a - b) / b * 100) if b != 0 else float("nan"))
+    median_improvement_pct = float(np.nanmedian(per_episode_pct))
+
+    # Isolate episodes where the baseline's real EF is already 1.0 (fully maxed
+    # extraction) -- in these episodes the agent CANNOT be winning from an
+    # "extraction advantage", since the baseline has none left to give. Any
+    # improvement here is attributable to flow_ratio management specifically,
+    # cleanly separated from the extraction-factor confound.
+    ef_maxed_pct = [p for p, ef in zip(per_episode_pct, baseline_ef_used) if ef >= 0.999]
+
+    # Robustness check: does the result depend heavily on one outlier episode
+    # (the one with the largest absolute baseline power)?
+    outlier_idx = int(np.argmax(baseline_power_output))
+    keep = [i for i in range(len(agent_power_output)) if i != outlier_idx]
+    agent_ex_outlier = sum(agent_power_output[i] for i in keep)
+    base_ex_outlier = sum(baseline_power_output[i] for i in keep)
+    improvement_ex_outlier = (
+        (agent_ex_outlier - base_ex_outlier) / base_ex_outlier * 100
+        if base_ex_outlier != 0 else float("nan")
+    )
+
     print("\n--- Evaluation Results ---")
     print(f"Trained Agent Mean Reward:   {mean_agent_reward:.4f}")
     print(f"Static Baseline Mean Reward: {mean_base_reward:.4f}")
@@ -117,7 +143,16 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
     # unit conversion first.
     print(f"Trained Agent Mean Power (model units): {mean_agent_power:.4f}")
     print(f"Static Baseline Mean Power (model units): {mean_base_power:.4f}")
-    print(f"Performance Improvement:     {improvement_pct:+.2f}%")
+    print(f"Performance Improvement (mean):     {improvement_pct:+.2f}%")
+    print(f"Performance Improvement (median):   {median_improvement_pct:+.2f}%")
+    print(f"Performance Improvement (excluding largest-magnitude episode {outlier_idx+1}): "
+          f"{improvement_ex_outlier:+.2f}%")
+    if ef_maxed_pct:
+        print(f"Improvement isolated to episodes where baseline EF=1.0 "
+              f"(no extraction-advantage possible, flow_ratio-only effect): "
+              f"{np.mean(ef_maxed_pct):+.2f}% (n={len(ef_maxed_pct)} episode(s))")
+    else:
+        print("No episodes had baseline EF=1.0 in this sample -- cannot isolate flow_ratio-only effect this run.")
 
     return {
         "agent_rewards": agent_rewards,
@@ -126,6 +161,11 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
         "agent_power_output": agent_power_output,
         "baseline_power_output": baseline_power_output,
         "improvement_pct": improvement_pct,
+        "median_improvement_pct": median_improvement_pct,
+        "improvement_excluding_outlier_pct": improvement_ex_outlier,
+        "flow_ratio_only_improvement_pct": (
+            float(np.mean(ef_maxed_pct)) if ef_maxed_pct else None
+        ),
     }
 
 
