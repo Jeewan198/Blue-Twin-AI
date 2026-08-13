@@ -8,8 +8,18 @@ from red_physics_engine import REDPhysicsEngine
 class REDEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
-    BASE_SEAWATER_CONC = 600.0
-    BASE_RIVER_CONC = 20.0
+    # Concentration values grounded in the real REDstack B.V. pilot plant,
+    # Afsluitdijk, Netherlands (the same plant referenced in Literature Review
+    # Section 2.1). Source: Tedesco et al., "Performance of the first Reverse
+    # Electrodialysis pilot plant..." -- seawater from the Wadden Sea (~28 g/L)
+    # and freshwater from the IJsselmeer lake (0.2-0.5 g/L), converted to
+    # mol/m^3 assuming NaCl (molar mass 58.44 g/mol):
+    #   28 g/L    -> 479.1 mol/m^3
+    #   0.35 g/L  -> 5.99 mol/m^3 (midpoint of the 0.2-0.5 g/L reported range)
+    # Previously 600.0 / 20.0 (generic open-ocean/typical-river approximations,
+    # not tied to a specific, citable real system).
+    BASE_SEAWATER_CONC = 479.0       # mol/m^3, REDstack Wadden Sea intake
+    BASE_RIVER_CONC = 6.0            # mol/m^3, REDstack IJsselmeer intake (midpoint)
     MIN_RIVER_CONC = 1.0
     POTENTIAL_SCALE_DIVISOR = 100.0
     POWER_SCALE = 1.0e4
