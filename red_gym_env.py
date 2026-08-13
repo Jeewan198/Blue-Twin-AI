@@ -16,14 +16,31 @@ class REDEnv(gym.Env):
     FLOW_RATIO_PENALTY_WEIGHT = 0.01
 
     def __init__(self, csv_path="ARA24_Clean_Master_Enhanced.csv", max_steps=365,
-                 normalize_reward_per_river=False):
+                 normalize_reward_per_river=False, river_id_subset=None):
         super().__init__()
 
         self.physics_engine = REDPhysicsEngine(csv_path=csv_path)
 
         df = pd.read_csv(csv_path)
         df.columns = df.columns.str.strip()
-        self.river_ids = df["River ID"].astype(str).tolist()
+        all_river_ids = df["River ID"].astype(str).tolist()
+
+        # river_id_subset restricts which rivers this environment samples from --
+        # used to enforce a proper train/test split (e.g. pass the training river
+        # IDs here during training, and the held-out test river IDs here during
+        # evaluation), so evaluation measures genuine generalisation rather than
+        # performance on rivers the agent already trained on.
+        if river_id_subset is not None:
+            subset = set(str(r) for r in river_id_subset)
+            self.river_ids = [r for r in all_river_ids if r in subset]
+            missing = subset - set(self.river_ids)
+            if missing:
+                print(f"Warning: {len(missing)} river IDs in river_id_subset were not "
+                      f"found in the dataset and will be ignored: {list(missing)[:5]}...")
+            if not self.river_ids:
+                raise ValueError("river_id_subset resulted in zero usable rivers -- check the IDs provided.")
+        else:
+            self.river_ids = all_river_ids
 
         months = ["January", "February", "March", "April", "May", "June",
                   "July", "August", "September", "October", "November", "December"]

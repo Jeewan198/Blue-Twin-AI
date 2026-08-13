@@ -3,6 +3,7 @@ import pandas as pd
 from stable_baselines3 import PPO
 from red_gym_env import REDEnv
 from train_agent import NormalizedActionWrapper
+from river_split import get_train_test_split
 
 
 def load_ef_lookup(csv_path="ARA24_Clean_Master_Enhanced.csv"):
@@ -28,28 +29,44 @@ def load_ef_lookup(csv_path="ARA24_Clean_Master_Enhanced.csv"):
     return ef_lookup
 
 
-def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episodes=10, seed_base=1000):
+def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episodes=10,
+                    seed_base=1000, river_id_subset="test"):
     """
     Runs deterministic evaluation rollouts for the trained PPO agent and compares
     it against a static baseline over full annual cycles (365 steps), using the
     SAME river/day sequence for both so the comparison is fair.
+
+    river_id_subset: "test" (default) restricts evaluation to the held-out test
+    rivers from river_split.py -- rivers a v3-trained agent never saw during
+    training. Pass None to sample from the full dataset instead (this is the
+    only fair option for v1/v2 checkpoints, since they were trained on the
+    full river pool with no held-out set at all -- there ARE no genuinely
+    unseen rivers for them).
     """
     model = PPO.load(model_path)
     ef_lookup = load_ef_lookup(csv_path)
     default_ef = float(np.mean(list(ef_lookup.values())))  # fallback if a river ID is somehow missing
+
+    if river_id_subset == "test":
+        _, eval_river_ids = get_train_test_split(csv_path)
+        print(f"Evaluating on the {len(eval_river_ids)} held-out TEST rivers only "
+              f"(genuinely unseen by a v3-trained agent; still 'seen' during training "
+              f"for any v1/v2 checkpoint, since those trained on the full river pool).")
+    else:
+        eval_river_ids = None
 
     # The agent's env MUST be wrapped exactly as it was during training -- the
     # trained policy outputs actions in [-1, 1], which only mean the right thing
     # once passed through NormalizedActionWrapper's rescaling back to the real
     # [0.1, 10.0] / [0.0, 1.0] ranges. Evaluating on an unwrapped env would silently
     # misinterpret every action the agent proposes.
-    agent_env = NormalizedActionWrapper(REDEnv(csv_path=csv_path))
+    agent_env = NormalizedActionWrapper(REDEnv(csv_path=csv_path, river_id_subset=eval_river_ids))
 
     # The baseline uses a plain, unwrapped env. flow_ratio=1.0 remains the
     # principled "no adjustment from reference" choice (see project notes).
     # extraction_factor now comes from each river's REAL, dataset-provided
     # Extraction Factor (EF) value, not an arbitrary constant.
-    baseline_env = REDEnv(csv_path=csv_path)
+    baseline_env = REDEnv(csv_path=csv_path, river_id_subset=eval_river_ids)
 
     agent_rewards, baseline_rewards = [], []
     agent_power_output, baseline_power_output = [], []
@@ -173,11 +190,20 @@ if __name__ == "__main__":
     # Original (v1) checkpoints, plus the new v2 experiment (per-river reward
     # normalisation + entropy bonus + LR decay). Any path not found is skipped
     # automatically -- comment out ones you don't have / don't want to re-run.
+    # NOTE on fairness: evaluating on the held-out test set (river_id_subset="test",
+    # the default) is a genuine unseen-data test ONLY for best_model_v3/final_model_v3,
+    # which were trained excluding these rivers. best_model/final_model/best_model_v2/
+    # final_model_v2 were all trained on the FULL river pool (no held-out set existed
+    # yet), so for them this is evaluation on rivers they may well have already seen
+    # during training -- still useful for comparing checkpoints against each other,
+    # but not a fair "generalisation" claim for anything except the v3 checkpoints.
     checkpoints = {
         "best_model": "./models/best_model/best_model.zip",
         "final_model": "./models/ppo_red_agent_final.zip",
         "best_model_v2": "./models/best_model_v2/best_model.zip",
         "final_model_v2": "./models/ppo_red_agent_v2_final.zip",
+        "best_model_v3": "./models/best_model_v3/best_model.zip",
+        "final_model_v3": "./models/ppo_red_agent_v3_final.zip",
     }
 
     all_results = {}
