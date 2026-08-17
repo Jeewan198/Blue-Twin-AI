@@ -76,7 +76,7 @@ class REDEnv(gym.Env):
             high=np.array([10.0, 1.0], dtype=np.float32),
             dtype=np.float32
         )
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(5,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(6,), dtype=np.float32)
         self.NERNST_NORM_MAX = 0.5
 
     def reset(self, seed=None, options=None):
@@ -139,7 +139,23 @@ class REDEnv(gym.Env):
         day_norm = day_of_year / 365.0
         nernst_e = self.physics_engine.nernst_potential(self.BASE_SEAWATER_CONC, c_low)
         nernst_norm = min(max(nernst_e / self.NERNST_NORM_MAX, 0.0), 1.0)
-        return np.array([conc_norm, pot_norm, temp_norm, day_norm, nernst_norm], dtype=np.float32)
+
+        # River-relative potential: pot normalised against THIS river's own max,
+        # not the global (Amazon-dominated) max used by pot_norm above. Without
+        # this, ~99% of rivers compress to a near-indistinguishable sliver near
+        # 0 in pot_norm, starving the agent of any signal to adapt flow_ratio
+        # to small/medium rivers' own conditions (confirmed via
+        # inspect_agent_actions.py: agent chose flow_ratio~4.3 for rivers whose
+        # true optimum was ~1.0-1.5, correlated only weakly, r=0.913, with river
+        # size, because pot_norm alone couldn't distinguish them). This feature
+        # gives the agent a second, complementary view of "is today relatively
+        # good for THIS specific river", independent of its absolute scale.
+        river_own_max = self.river_max_potential.get(self.current_river_id, self.max_potential)
+        river_own_max = river_own_max if (river_own_max and np.isfinite(river_own_max) and river_own_max > 0) else self.max_potential
+        river_relative_pot_norm = min(max(pot / river_own_max, 0.0), 1.0)
+
+        return np.array([conc_norm, pot_norm, temp_norm, day_norm, nernst_norm,
+                          river_relative_pot_norm], dtype=np.float32)
 
     def render(self):
         print(f"Step: {self.current_step} | River ID: {self.current_river_id}")

@@ -197,13 +197,18 @@ if __name__ == "__main__":
     # yet), so for them this is evaluation on rivers they may well have already seen
     # during training -- still useful for comparing checkpoints against each other,
     # but not a fair "generalisation" claim for anything except the v3 checkpoints.
+    # IMPORTANT: v1/v2/v3 checkpoints were trained with a 5-dimensional
+    # observation space; red_gym_env.py now produces 6 dimensions (added
+    # river-relative potential, see red_gym_env.py's _get_observation
+    # docstring). Those older checkpoints are NOT compatible with the current
+    # environment -- their networks' input layers expect 5 numbers, not 6 --
+    # so only v4 checkpoints (trained with the current, fixed observation
+    # space) are evaluated here. This is why v1-v3 results from earlier runs
+    # can no longer be directly reproduced by re-running this script; refer to
+    # previously-saved results/evaluation_results.json for those.
     checkpoints = {
-        "best_model": "./models/best_model/best_model.zip",
-        "final_model": "./models/ppo_red_agent_final.zip",
-        "best_model_v2": "./models/best_model_v2/best_model.zip",
-        "final_model_v2": "./models/ppo_red_agent_v2_final.zip",
-        "best_model_v3": "./models/best_model_v3/best_model.zip",
-        "final_model_v3": "./models/ppo_red_agent_v3_final.zip",
+        "best_model_v4": "./models/best_model_v4/best_model.zip",
+        "final_model_v4": "./models/ppo_red_agent_v4_final.zip",
     }
 
     all_results = {}
@@ -213,6 +218,9 @@ if __name__ == "__main__":
             all_results[label] = run_evaluation(path, episodes=10)
         except FileNotFoundError:
             print(f"  Skipped -- file not found at {path}")
+        except (RuntimeError, ValueError) as e:
+            print(f"  Skipped -- checkpoint incompatible with current observation "
+                  f"space (likely trained under an older red_gym_env.py version): {e}")
 
     if len(all_results) >= 2:
         print(f"\n{'='*60}\nCheckpoint comparison\n{'='*60}")
