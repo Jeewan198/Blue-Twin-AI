@@ -41,6 +41,8 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
 
     all_flow_ratios = []
     all_extraction_factors = []
+    all_river_relative_pot = []
+    all_global_pot = []
     per_episode_summary = []
 
     print(f"Inspecting actual actions chosen across {episodes} held-out test episodes "
@@ -53,11 +55,20 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
         ep_flow_ratios, ep_extraction_factors = [], []
 
         while not done:
+            # obs[1] = global-scale pot_norm, obs[5] = river-relative pot_norm
+            # (see red_gym_env.py _get_observation) -- both captured BEFORE
+            # the action is taken, since that's what actually informed it.
+            day_global_pot = float(obs[1])
+            day_river_relative_pot = float(obs[5]) if len(obs) > 5 else None
+
             action, _ = model.predict(obs, deterministic=True)
             real_action = env.action(action)  # apply the same rescaling env.step() would
             flow_ratio, extraction_factor = float(real_action[0]), float(real_action[1])
             ep_flow_ratios.append(flow_ratio)
             ep_extraction_factors.append(extraction_factor)
+            all_global_pot.append(day_global_pot)
+            if day_river_relative_pot is not None:
+                all_river_relative_pot.append(day_river_relative_pot)
 
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
@@ -88,18 +99,30 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
     print(f"extraction_factor: mean={ext_arr.mean():.3f}, std={ext_arr.std():.3f}, "
           f"min={ext_arr.min():.3f}, max={ext_arr.max():.3f}")
 
-    # Does chosen flow_ratio actually correlate with river size (potential_norm),
-    # as the analytically-derived optimum says it should? A near-zero or negative
-    # correlation would indicate the agent isn't adapting flow_ratio to river
-    # context, even though it should according to the underlying physics/reward.
+    # Two separate correlation checks, since v4 trains with normalize_reward_per_river=True
+    # -- meaning the reward the agent actually optimised used RIVER-RELATIVE potential,
+    # not global. Correlating only against global potential_norm (as done previously)
+    # tests the WRONG variable for a per-river-normalised agent.
     pn_vals = np.array([s["potential_norm"] for s in per_episode_summary])
     fr_vals = np.array([s["flow_ratio_mean"] for s in per_episode_summary])
     if len(pn_vals) > 1 and pn_vals.std() > 0:
-        correlation = np.corrcoef(pn_vals, fr_vals)[0, 1]
-        print(f"\nCorrelation between river potential_norm and chosen flow_ratio: {correlation:.3f}")
-        print("(Analytically, this SHOULD be strongly positive -- larger/higher-potential "
-              "rivers should get a higher optimal flow_ratio. Near-zero or negative here "
-              "suggests the agent isn't adapting flow_ratio to river context as expected.)")
+        correlation_global = np.corrcoef(pn_vals, fr_vals)[0, 1]
+        print(f"\n[Per-episode] Correlation between GLOBAL river potential_norm and "
+              f"mean flow_ratio: {correlation_global:.3f}")
+        print("(This tests whether flow_ratio tracks overall river SIZE -- not "
+              "necessarily the right thing to expect if trained with "
+              "normalize_reward_per_river=True; see the per-day check below.)")
+
+    if len(all_river_relative_pot) == len(all_flow_ratios) and len(all_river_relative_pot) > 1:
+        rr_arr = np.array(all_river_relative_pot)
+        if rr_arr.std() > 0:
+            correlation_relative = np.corrcoef(rr_arr, flow_arr)[0, 1]
+            print(f"\n[Per-DAY] Correlation between RIVER-RELATIVE potential (obs[5]) and "
+                  f"flow_ratio, across all {len(rr_arr)} agent decisions: {correlation_relative:.3f}")
+            print("(This is the variable the v4 reward actually optimised against -- a "
+                  "strong positive value here is the correct test of whether the "
+                  "observation-space fix worked, i.e. whether the agent adapts to "
+                  "day-to-day, river-relative conditions.)")
 
     warnings = []
     if flow_arr.std() < 0.01:
