@@ -67,6 +67,26 @@ class REDEnv(gym.Env):
         ).max()
         self.river_max_potential = river_max.to_dict()
 
+        # Real, dataset-provided per-river Extraction Factor (EF), used as a hard
+        # ecological/sustainability ceiling on the agent's own extraction_factor
+        # action (see step()). Without this, the physics being "real" (grounded in
+        # REDstack data) did not translate into the agent actually respecting real
+        # ecological extraction limits -- it could always extract the maximum the
+        # physics allowed, regardless of what's environmentally sustainable for
+        # that specific river. EF is on the dataset's native 0-100 scale; divided
+        # here to match the action space's 0-1 range.
+        ef_col = "Extraction Factor (EF)"
+        if ef_col in df.columns:
+            ef_series = pd.to_numeric(df.set_index(df["River ID"].astype(str))[ef_col],
+                                       errors="coerce") / 100.0
+            self.river_ef = ef_series.to_dict()
+            self.default_ef = float(np.nanmean(list(self.river_ef.values())))
+        else:
+            print(f"Warning: '{ef_col}' column not found -- ecological extraction "
+                  f"constraint will not be enforced (defaulting to unconstrained).")
+            self.river_ef = {}
+            self.default_ef = 1.0
+
         self.current_river_id = None
         self.current_step = 0
         self.max_steps = max_steps
@@ -111,7 +131,17 @@ class REDEnv(gym.Env):
         else:
             potential_norm = min(max(base_potential / self.max_potential, 0.0), 1.0)
 
-        power_output = power_density * self.POWER_SCALE * extraction_factor * potential_norm
+        # Hard ecological/sustainability ceiling: the agent's own extraction_factor
+        # action cannot exceed this specific river's real, dataset-provided
+        # Extraction Factor, regardless of what it proposes. Without this, "grounded
+        # in real physics" did not translate into "respects real ecological
+        # extraction limits" -- the agent could always draw the maximum the physics
+        # allowed, which is not the same thing as what is environmentally
+        # sustainable for that river.
+        river_ef = self.river_ef.get(self.current_river_id, self.default_ef)
+        effective_extraction_factor = min(extraction_factor, river_ef)
+
+        power_output = power_density * self.POWER_SCALE * effective_extraction_factor * potential_norm
         power_output = max(0.0, power_output)
 
         reward = power_output - self.FLOW_RATIO_PENALTY_WEIGHT * (flow_ratio - 1.0) ** 2
@@ -126,6 +156,9 @@ class REDEnv(gym.Env):
             "nernst_potential": nernst_e,
             "internal_resistance": resistance,
             "day": day_of_year,
+            "raw_extraction_factor": float(extraction_factor),
+            "river_ef_limit": float(river_ef),
+            "effective_extraction_factor": float(effective_extraction_factor),
         }
         return obs, float(reward), terminated, truncated, info
 
