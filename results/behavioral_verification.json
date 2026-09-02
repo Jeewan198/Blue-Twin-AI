@@ -1,0 +1,11 @@
+{
+  "correlation_river_relative": 0.9669838165242753,
+  "total_decisions": 47085,
+  "rivers_covered": 129,
+  "rivers_target": 129,
+  "cap_violations": 0,
+  "ecological_compliance_pass": true,
+  "flow_ratio_mean": 1.150620505423876,
+  "flow_ratio_std": 1.1451254349573157,
+  "extraction_mean": 1.0
+}

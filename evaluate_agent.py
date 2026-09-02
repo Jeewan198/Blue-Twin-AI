@@ -29,12 +29,21 @@ def load_ef_lookup(csv_path="ARA24_Clean_Master_Enhanced.csv"):
     return ef_lookup
 
 
-def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episodes=10,
+def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episodes=None,
                     seed_base=1000, river_id_subset="test"):
     """
     Runs deterministic evaluation rollouts for the trained PPO agent and compares
     it against a static baseline over full annual cycles (365 steps), using the
     SAME river/day sequence for both so the comparison is fair.
+
+    episodes: number of evaluation episodes to run. If None (default) and
+    river_id_subset="test", this now automatically evaluates on ALL held-out
+    test rivers, so the evaluation always covers the full intended test set
+    regardless of its size -- this was previously hardcoded to a fixed number
+    (10) that silently fell far short of the full 129-river held-out set,
+    despite the dissertation reporting results as covering all 129 rivers.
+    Pass an explicit integer to override this (e.g. for a quick partial check
+    during development).
 
     river_id_subset: "test" (default) restricts evaluation to the held-out test
     rivers from river_split.py -- rivers a v3-trained agent never saw during
@@ -49,11 +58,18 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
 
     if river_id_subset == "test":
         _, eval_river_ids = get_train_test_split(csv_path)
-        print(f"Evaluating on the {len(eval_river_ids)} held-out TEST rivers only "
+        if episodes is None:
+            episodes = len(eval_river_ids)
+        print(f"Evaluating on {episodes} of the {len(eval_river_ids)} held-out TEST rivers "
               f"(genuinely unseen by a v3-trained agent; still 'seen' during training "
               f"for any v1/v2 checkpoint, since those trained on the full river pool).")
     else:
         eval_river_ids = None
+        if episodes is None:
+            raise ValueError(
+                "episodes must be specified explicitly when river_id_subset is not 'test', "
+                "since there is no held-out set size to default to."
+            )
 
     # The agent's env MUST be wrapped exactly as it was during training -- the
     # trained policy outputs actions in [-1, 1], which only mean the right thing
@@ -71,14 +87,34 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
     agent_rewards, baseline_rewards = [], []
     agent_power_output, baseline_power_output = [], []
     baseline_ef_used = []
+    rivers_seen = set()
 
     print(f"Starting evaluation across {episodes} episodes...")
-    for ep in range(episodes):
-        episode_seed = seed_base + ep  # same seed -> same river/day sequence for both runs
+    # For the held-out test set, iterate through every distinct river
+    # explicitly, forcing each one in turn, rather than relying on REDEnv's
+    # internal random choice (np_random.choice in reset()) to eventually
+    # cover all of them across `episodes` random draws. Random sampling with
+    # replacement does not guarantee full coverage: drawing 129 times from a
+    # pool of 129 rivers covers only ~82 distinct rivers on average, not all
+    # 129, which would silently undermine the "evaluated on all 129 held-out
+    # rivers" claim even with the correct episode count.
+    if river_id_subset == "test":
+        episode_river_ids = eval_river_ids[:episodes]
+    else:
+        episode_river_ids = [None] * episodes  # let REDEnv choose randomly, as before
+
+    for ep, forced_river_id in enumerate(episode_river_ids):
+        episode_seed = seed_base + ep  # still used for any other seed-dependent behaviour
 
         # 1. Evaluate trained PPO agent
         obs, info = agent_env.reset(seed=episode_seed)
+        if forced_river_id is not None:
+            agent_env.unwrapped.current_river_id = forced_river_id
+            agent_env.unwrapped.current_step = 0
+            obs = agent_env.unwrapped._get_observation(
+                day_of_year=1, c_low=agent_env.unwrapped.BASE_RIVER_CONC)
         agent_river = agent_env.unwrapped.current_river_id
+        rivers_seen.add(agent_river)
         done = False
         ep_agent_reward, ep_agent_power = 0.0, 0.0
         while not done:
@@ -94,6 +130,11 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
         # extraction_factor is now this specific river's REAL Extraction Factor
         # from the dataset, not an arbitrary constant.
         obs, info = baseline_env.reset(seed=episode_seed)
+        if forced_river_id is not None:
+            baseline_env.current_river_id = forced_river_id
+            baseline_env.current_step = 0
+            obs = baseline_env._get_observation(
+                day_of_year=1, c_low=baseline_env.BASE_RIVER_CONC)
         baseline_river = baseline_env.current_river_id
         river_ef = ef_lookup.get(baseline_river, default_ef)
         static_action = np.array([1.0, river_ef], dtype=np.float32)
@@ -111,6 +152,23 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
         match_flag = "OK" if agent_river == baseline_river else "MISMATCH -- check seeding"
         print(f"  Episode {ep+1}: agent_river={agent_river}, baseline_river={baseline_river} "
               f"[{match_flag}], baseline_EF_used={river_ef:.3f}")
+
+    # Coverage check: confirms whether the episodes actually touched every
+    # distinct river in the held-out set, or whether some were drawn multiple
+    # times while others were missed entirely (possible if river selection
+    # inside REDEnv.reset() samples randomly rather than iterating the list).
+    if river_id_subset == "test":
+        n_distinct = len(rivers_seen)
+        n_target = len(eval_river_ids)
+        if n_distinct < n_target:
+            print(f"\nWARNING: only {n_distinct} of {n_target} held-out test rivers were "
+                  f"actually evaluated across these {episodes} episodes -- some rivers were "
+                  f"likely sampled more than once while others were missed. If you need "
+                  f"guaranteed full coverage of every distinct test river, river selection "
+                  f"needs to explicitly iterate river_id_subset rather than sample from it.")
+        else:
+            print(f"\nCoverage check: all {n_distinct} of {n_target} held-out test rivers "
+                  f"were evaluated at least once.")
 
     mean_agent_reward = np.mean(agent_rewards)
     mean_base_reward = np.mean(baseline_rewards)
@@ -165,9 +223,16 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
     print(f"Performance Improvement (excluding largest-magnitude episode {outlier_idx+1}): "
           f"{improvement_ex_outlier:+.2f}%")
     if ef_maxed_pct:
+        # Uses nanmean rather than mean: a single episode with baseline power of
+        # exactly zero produces a nan for that one episode (division by zero in
+        # per_episode_pct above), and plain mean() would let that one nan silently
+        # erase the valid signal from every other episode in this subset.
+        n_valid = sum(1 for p in ef_maxed_pct if not np.isnan(p))
+        n_dropped = len(ef_maxed_pct) - n_valid
+        drop_note = f", {n_dropped} excluded due to zero baseline power" if n_dropped else ""
         print(f"Improvement isolated to episodes where baseline EF=1.0 "
               f"(no extraction-advantage possible, flow_ratio-only effect): "
-              f"{np.mean(ef_maxed_pct):+.2f}% (n={len(ef_maxed_pct)} episode(s))")
+              f"{np.nanmean(ef_maxed_pct):+.2f}% (n={len(ef_maxed_pct)} episode(s){drop_note})")
     else:
         print("No episodes had baseline EF=1.0 in this sample -- cannot isolate flow_ratio-only effect this run.")
 
@@ -181,41 +246,25 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
         "median_improvement_pct": median_improvement_pct,
         "improvement_excluding_outlier_pct": improvement_ex_outlier,
         "flow_ratio_only_improvement_pct": (
-            float(np.mean(ef_maxed_pct)) if ef_maxed_pct else None
+            float(np.nanmean(ef_maxed_pct)) if ef_maxed_pct else None
         ),
     }
 
 
 if __name__ == "__main__":
-    # Original (v1) checkpoints, plus the new v2 experiment (per-river reward
-    # normalisation + entropy bonus + LR decay). Any path not found is skipped
-    # automatically -- comment out ones you don't have / don't want to re-run.
-    # NOTE on fairness: evaluating on the held-out test set (river_id_subset="test",
-    # the default) is a genuine unseen-data test ONLY for best_model_v3/final_model_v3,
-    # which were trained excluding these rivers. best_model/final_model/best_model_v2/
-    # final_model_v2 were all trained on the FULL river pool (no held-out set existed
-    # yet), so for them this is evaluation on rivers they may well have already seen
-    # during training -- still useful for comparing checkpoints against each other,
-    # but not a fair "generalisation" claim for anything except the v3 checkpoints.
-    # IMPORTANT: v1/v2/v3 checkpoints were trained with a 5-dimensional
-    # observation space; red_gym_env.py now produces 6 dimensions (added
-    # river-relative potential, see red_gym_env.py's _get_observation
-    # docstring). Those older checkpoints are NOT compatible with the current
-    # environment -- their networks' input layers expect 5 numbers, not 6 --
-    # so only v4 checkpoints (trained with the current, fixed observation
-    # space) are evaluated here. This is why v1-v3 results from earlier runs
-    # can no longer be directly reproduced by re-running this script; refer to
-    # previously-saved results/evaluation_results.json for those.
     checkpoints = {
-        "best_model_v4": "./models/best_model_v4/best_model.zip",
         "final_model_v4": "./models/ppo_red_agent_v4_final.zip",
+        "best_model_v5": "./models/best_model_v5/best_model.zip",
+        "final_model_v5": "./models/ppo_red_agent_v5_final.zip",
     }
 
     all_results = {}
     for label, path in checkpoints.items():
         print(f"\n{'='*60}\nEvaluating checkpoint: {label} ({path})\n{'='*60}")
         try:
-            all_results[label] = run_evaluation(path, episodes=10)
+            # episodes intentionally left unspecified -- run_evaluation now
+            # automatically evaluates on all held-out test rivers by default.
+            all_results[label] = run_evaluation(path)
         except FileNotFoundError:
             print(f"  Skipped -- file not found at {path}")
         except (RuntimeError, ValueError) as e:

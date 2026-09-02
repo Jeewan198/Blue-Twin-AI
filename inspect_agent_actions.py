@@ -2,9 +2,9 @@
 inspect_agent_actions.py
 
 Sanity-check script: logs the actual flow_ratio and extraction_factor values
-a trained agent chooses, day by day, across several held-out test episodes.
-This directly answers "is the agent doing something sensible?" rather than
-only looking at the aggregate power_output/reward numbers, which can hide
+a trained agent chooses, day by day, across held-out test episodes. This
+directly answers "is the agent doing something sensible?" rather than only
+looking at the aggregate power_output/reward numbers, which can hide
 degenerate behaviour (e.g. always picking one extreme action) even when the
 final performance number looks good.
 
@@ -20,9 +20,16 @@ from river_split import get_train_test_split
 
 
 def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
-                     episodes=5, seed_base=2000, normalize_reward_per_river=False):
+                     episodes=None, seed_base=2000, normalize_reward_per_river=False):
+    """
+    episodes: number of held-out test episodes to inspect. If None (default),
+    automatically covers ALL held-out test rivers -- see the coverage note
+    below for why this matters.
+    """
     model = PPO.load(model_path)
     _, test_ids = get_train_test_split(csv_path)
+    if episodes is None:
+        episodes = len(test_ids)
     env = NormalizedActionWrapper(REDEnv(csv_path=csv_path, river_id_subset=test_ids,
                                           normalize_reward_per_river=normalize_reward_per_river))
 
@@ -43,13 +50,34 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
     all_extraction_factors = []
     all_river_relative_pot = []
     all_global_pot = []
+    all_effective_extraction = []
+    all_ef_limits = []
+    cap_violations = 0
     per_episode_summary = []
+    rivers_seen = set()
 
     print(f"Inspecting actual actions chosen across {episodes} held-out test episodes "
           f"(normalize_reward_per_river={normalize_reward_per_river})...\n")
-    for ep in range(episodes):
+
+    # Iterate through every distinct held-out river explicitly, forcing each
+    # one in turn, rather than relying on REDEnv's internal random choice
+    # (np_random.choice in reset()) to eventually cover all of them across
+    # `episodes` random draws. Random sampling with replacement does not
+    # guarantee full coverage: the total decision count (episodes x 365)
+    # stays the same whether every distinct river was checked once, or only
+    # a subset was checked unevenly -- so this must be enforced explicitly,
+    # not inferred from the total count.
+    episode_river_ids = test_ids[:episodes]
+
+    for ep, forced_river_id in enumerate(episode_river_ids):
         obs, info = env.reset(seed=seed_base + ep)
+        env.unwrapped.current_river_id = forced_river_id
+        env.unwrapped.current_step = 0
+        obs = env.unwrapped._get_observation(
+            day_of_year=1, c_low=env.unwrapped.BASE_RIVER_CONC)
+
         river_id = env.unwrapped.current_river_id
+        rivers_seen.add(river_id)
         river_potential_norm = min(max(river_max.get(river_id, 0) / global_max_potential, 0.0), 1.0)
         done = False
         ep_flow_ratios, ep_extraction_factors = [], []
@@ -73,6 +101,17 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
+            # Verify the ecological EF cap is actually being respected during
+            # real evaluation, not just in the isolated unit test -- this is the
+            # v5-specific check that matters most.
+            if "effective_extraction_factor" in info:
+                eff = info["effective_extraction_factor"]
+                limit = info["river_ef_limit"]
+                all_effective_extraction.append(eff)
+                all_ef_limits.append(limit)
+                if eff > limit + 1e-6:
+                    cap_violations += 1
+
         all_flow_ratios.extend(ep_flow_ratios)
         all_extraction_factors.extend(ep_extraction_factors)
 
@@ -90,8 +129,20 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
               f"(range {summary['flow_ratio_min']:.3f}-{summary['flow_ratio_max']:.3f}) | "
               f"extraction_factor mean={summary['extraction_mean']:.3f}")
 
+    # Coverage check: confirms whether the episodes actually touched every
+    # distinct held-out river.
+    n_distinct = len(rivers_seen)
+    n_target = len(test_ids)
+    if n_distinct < n_target:
+        print(f"\nWARNING: only {n_distinct} of {n_target} held-out test rivers were "
+              f"actually inspected across these {episodes} episodes.")
+    else:
+        print(f"\nCoverage check: all {n_distinct} of {n_target} held-out test rivers "
+              f"were inspected.")
+
     flow_arr = np.array(all_flow_ratios)
     ext_arr = np.array(all_extraction_factors)
+    correlation_relative = None
 
     print(f"\n--- Overall action statistics across {len(flow_arr)} agent decisions ---")
     print(f"flow_ratio:        mean={flow_arr.mean():.3f}, std={flow_arr.std():.3f}, "
@@ -124,6 +175,19 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
                   "observation-space fix worked, i.e. whether the agent adapts to "
                   "day-to-day, river-relative conditions.)")
 
+    if all_effective_extraction:
+        eff_arr = np.array(all_effective_extraction)
+        lim_arr = np.array(all_ef_limits)
+        print(f"\n--- Ecological extraction constraint check (v5) ---")
+        print(f"Effective extraction used:  mean={eff_arr.mean():.4f}, max={eff_arr.max():.4f}")
+        print(f"Real river EF limits:       mean={lim_arr.mean():.4f}, max={lim_arr.max():.4f}")
+        print(f"Cap violations (effective > real EF limit): {cap_violations} / {len(eff_arr)} decisions")
+        if cap_violations == 0:
+            print("PASS -- the agent never exceeded any river's real ecological extraction limit.")
+        else:
+            print("FAIL -- the ecological cap was violated. This should not be possible; "
+                  "check red_gym_env.py's step() implementation.")
+
     warnings = []
     if flow_arr.std() < 0.01:
         warnings.append("flow_ratio has near-zero variance -- agent may be picking a "
@@ -147,13 +211,38 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
         "flow_ratio_std": float(flow_arr.std()),
         "extraction_mean": float(ext_arr.mean()),
         "extraction_std": float(ext_arr.std()),
+        "correlation_river_relative": float(correlation_relative) if correlation_relative is not None else None,
+        "total_decisions": len(eff_arr) if all_effective_extraction else len(flow_arr),
+        "rivers_covered": n_distinct,
+        "rivers_target": n_target,
+        "cap_violations": cap_violations,
+        "ecological_compliance_pass": cap_violations == 0,
         "warnings": warnings,
     }
 
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("final_model_v4 -- fixed observation space (includes river-relative potential)")
+    print("final_model_v5 -- ecological EF constraint on extraction_factor")
     print("=" * 60)
-    inspect_actions("./models/ppo_red_agent_v4_final.zip", episodes=129,
-                     normalize_reward_per_river=False)
+    # episodes intentionally left unspecified -- inspect_actions now
+    # automatically covers all held-out test rivers by default.
+    results = inspect_actions("./models/ppo_red_agent_v5_final.zip",
+                               normalize_reward_per_river=False)
+
+    import json
+    import os
+    os.makedirs("results", exist_ok=True)
+    with open("results/behavioral_verification.json", "w") as f:
+        json.dump({
+            "correlation_river_relative": results["correlation_river_relative"],
+            "total_decisions": results["total_decisions"],
+            "rivers_covered": results["rivers_covered"],
+            "rivers_target": results["rivers_target"],
+            "cap_violations": results["cap_violations"],
+            "ecological_compliance_pass": results["ecological_compliance_pass"],
+            "flow_ratio_mean": results["flow_ratio_mean"],
+            "flow_ratio_std": results["flow_ratio_std"],
+            "extraction_mean": results["extraction_mean"],
+        }, f, indent=2)
+    print(f"\nSaved behavioral verification results to results/behavioral_verification.json")
