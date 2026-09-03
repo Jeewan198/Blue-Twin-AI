@@ -12,7 +12,7 @@ def plot_spatial_potential(df):
     plt.scatter(valid_df['Longitude'], valid_df['Latitude'],
                 c=valid_df.get('Actual extractable water volume per year (Qreal=ΣQex_m) \n(m3/s)', valid_df.iloc[:, 0]),
                 cmap='plasma', alpha=0.6)
-    plt.colorbar(label='Annual Extractable Volume')
+    plt.colorbar(label='Annual Extractable Volume (m\u00b3/s)')
     plt.title('Geographical Distribution of Renewable Potential')
     plt.xlabel('Longitude')
     plt.ylabel('Latitude')
@@ -41,7 +41,8 @@ def plot_potential_heatmap(df, num_rivers=20):
     subset = df.dropna(subset=MONTH_COLS).iloc[:num_rivers]
     heatmap_data = subset[MONTH_COLS]
     sns.heatmap(heatmap_data, annot=False, cmap='viridis', xticklabels=MONTHS,
-                yticklabels=subset.get('River name', subset.index))
+                yticklabels=subset.get('River name', subset.index),
+                cbar_kws={'label': 'Theoretical Power Potential (MW)'})
     plt.title(f"Heatmap of Monthly Potentials (Top {num_rivers} Rivers)")
     plt.tight_layout()
     plt.savefig('monthly_potential_heatmap.png')
