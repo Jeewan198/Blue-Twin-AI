@@ -7,12 +7,22 @@ MONTHS = ["January", "February", "March", "April", "May", "June",
 MONTH_COLS = [f"Theoretical_MW_{m}" for m in MONTHS]
 
 def plot_spatial_potential(df):
+    import matplotlib.colors as mcolors
     plt.figure(figsize=(10, 6))
     valid_df = df.dropna(subset=['Longitude', 'Latitude'])
+    values = valid_df.get('Actual extractable water volume per year (Qreal=ΣQex_m) \n(m3/s)', valid_df.iloc[:, 0])
+    # A linear colour scale is unusable here: this dataset is heavily skewed
+    # (a small number of very large rivers, most rivers far smaller), so a
+    # linear scale crushes nearly every point into the same dark colour.
+    # LogNorm spreads the colour range across orders of magnitude instead,
+    # making variation among small and medium rivers actually visible.
+    # Values of zero or below can't be shown on a log scale, so they're
+    # clipped to a small positive floor rather than dropped or erroring.
+    positive_values = values.clip(lower=values[values > 0].min() if (values > 0).any() else 1e-6)
     plt.scatter(valid_df['Longitude'], valid_df['Latitude'],
-                c=valid_df.get('Actual extractable water volume per year (Qreal=ΣQex_m) \n(m3/s)', valid_df.iloc[:, 0]),
-                cmap='plasma', alpha=0.6)
-    plt.colorbar(label='Annual Extractable Volume (m\u00b3/s)')
+                c=positive_values, cmap='plasma', alpha=0.7,
+                norm=mcolors.LogNorm(vmin=positive_values.min(), vmax=positive_values.max()))
+    plt.colorbar(label='Annual Extractable Volume (m\u00b3/s), log scale')
     plt.title('Geographical Distribution of Renewable Potential')
     plt.xlabel('Longitude')
     plt.ylabel('Latitude')
