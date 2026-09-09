@@ -253,7 +253,6 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
 
 if __name__ == "__main__":
     checkpoints = {
-        "final_model_v4": "./models/ppo_red_agent_v4_final.zip",
         "best_model_v5": "./models/best_model_v5/best_model.zip",
         "final_model_v5": "./models/ppo_red_agent_v5_final.zip",
     }
