@@ -12,7 +12,7 @@ def load_ef_lookup(csv_path="ARA24_Clean_Master_Enhanced.csv"):
     converted from its native 0-100 scale to the 0-1 scale REDEnv's action
     space expects. This replaces an earlier, arbitrarily-chosen fixed baseline
     extraction_factor (0.5) with a defensible, dataset-grounded value specific
-    to each river -- see project notes on why this matters: a large majority of
+    to each river : a large majority of
     the previously-reported v2 "improvement" turned out to come from the
     baseline's extraction_factor being arbitrarily low, not from genuine
     flow-management intelligence.
@@ -39,9 +39,7 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
     episodes: number of evaluation episodes to run. If None (default) and
     river_id_subset="test", this now automatically evaluates on ALL held-out
     test rivers, so the evaluation always covers the full intended test set
-    regardless of its size -- this was previously hardcoded to a fixed number
-    (10) that silently fell far short of the full 129-river held-out set,
-    despite the dissertation reporting results as covering all 129 rivers.
+    regardless of its size .
     Pass an explicit integer to override this (e.g. for a quick partial check
     during development).
 
@@ -79,7 +77,7 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
     agent_env = NormalizedActionWrapper(REDEnv(csv_path=csv_path, river_id_subset=eval_river_ids))
 
     # The baseline uses a plain, unwrapped env. flow_ratio=1.0 remains the
-    # principled "no adjustment from reference" choice (see project notes).
+    # principled "no adjustment from reference" choice.
     # extraction_factor now comes from each river's REAL, dataset-provided
     # Extraction Factor (EF) value, not an arbitrary constant.
     baseline_env = REDEnv(csv_path=csv_path, river_id_subset=eval_river_ids)
@@ -214,8 +212,7 @@ def run_evaluation(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv", episo
           f"{np.mean(baseline_ef_used):.4f}")
     # NOTE: 'power_output' is the reward-function's internal, dimensionless
     # power-density-based term (see red_gym_env.py step()) -- NOT real-world kWh.
-    # Do not report this as kWh in your dissertation without deriving a proper
-    # unit conversion first.
+
     print(f"Trained Agent Mean Power (model units): {mean_agent_power:.4f}")
     print(f"Static Baseline Mean Power (model units): {mean_base_power:.4f}")
     print(f"Performance Improvement (mean):     {improvement_pct:+.2f}%")
@@ -279,11 +276,11 @@ if __name__ == "__main__":
         for label, power in sorted(summary.items(), key=lambda kv: kv[1], reverse=True):
             print(f"{label:20s} mean power: {power:.4f}")
         winner = max(summary, key=summary.get)
-        print(f"\nRecommended checkpoint for your Evaluation chapter: {winner}")
+        print(f"\nRecommended checkpoint for the Evaluation chapter: {winner}")
     elif len(all_results) == 1:
         print("\nOnly one checkpoint was found -- comparison skipped.")
     else:
-        print("\nNo checkpoints were found. Check your 'models/' directory paths.")
+        print("\nNo checkpoints were found.")
 
     if all_results:
         import json

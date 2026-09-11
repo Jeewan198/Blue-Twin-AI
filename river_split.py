@@ -5,8 +5,7 @@ Provides a single, deterministic train/test split of the ARA24 rivers, so that
 training and evaluation always agree on which rivers are reserved for testing.
 Without this, both training and evaluation sample from the same full pool of
 1,073 rivers, meaning evaluation isn't testing genuine generalisation to
-unseen conditions (see Dr. Bane's feedback on following standard evaluation
-procedure).
+unseen conditions
 
 Usage:
     from river_split import get_train_test_split

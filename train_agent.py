@@ -73,7 +73,7 @@ def main():
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        seed=42,  # Ensures repeatable training runs for your Evaluation chapter
+        seed=42,  # Ensures repeatable training runs for the Evaluation chapter
         verbose=1,
         tensorboard_log="./red_tensorboard/"
     )

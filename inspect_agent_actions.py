@@ -8,8 +8,6 @@ looking at the aggregate power_output/reward numbers, which can hide
 degenerate behaviour (e.g. always picking one extreme action) even when the
 final performance number looks good.
 
-Run this after evaluate_agent.py has confirmed a checkpoint's headline
-numbers, as a final check before reporting results in the dissertation.
 """
 import numpy as np
 import pandas as pd
@@ -23,8 +21,7 @@ def inspect_actions(model_path, csv_path="ARA24_Clean_Master_Enhanced.csv",
                      episodes=None, seed_base=2000, normalize_reward_per_river=False):
     """
     episodes: number of held-out test episodes to inspect. If None (default),
-    automatically covers ALL held-out test rivers -- see the coverage note
-    below for why this matters.
+    automatically covers ALL held-out test rivers
     """
     model = PPO.load(model_path)
     _, test_ids = get_train_test_split(csv_path)

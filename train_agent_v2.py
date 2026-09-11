@@ -65,7 +65,7 @@ def main():
 
     # CHANGE 2: ent_coef > 0. SB3's PPO defaults to ent_coef=0, meaning nothing
     # explicitly discourages the policy's action distribution from collapsing
-    # (std shrinking) prematurely. Our first fixed-reward run converged to its
+    # (std shrinking) prematurely. The first fixed-reward run converged to its
     # best checkpoint at ~12,000 of 73,000 timesteps and regressed afterward --
     # consistent with premature convergence rather than genuine optimum-finding.
     # A small entropy bonus keeps some exploration alive for longer, giving PPO
@@ -86,7 +86,7 @@ def main():
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.005,   # NEW -- small entropy bonus, see CHANGE 2 above
+        ent_coef=0.005,   # NEW -- small entropy bonus,
         seed=42,
         verbose=1,
         tensorboard_log="./red_tensorboard/"

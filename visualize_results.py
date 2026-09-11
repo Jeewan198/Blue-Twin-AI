@@ -1,13 +1,8 @@
 """
 visualize_results.py
 
-Generates dissertation-ready figures from Blue-Twin AI's trained-model
-evaluation results. This is deliberately separate from visualize_data.py,
-which explores the raw ARA24 dataset and has no connection to the trained
-RL agent -- this script is downstream of evaluate_agent.py's output.
-
-Run evaluate_agent.py first; it writes ./results/evaluation_results.json,
-which this script reads.
+Generates figures from Blue-Twin AI's trained-model
+evaluation results.
 """
 import json
 import os
@@ -19,8 +14,7 @@ import matplotlib.pyplot as plt
 
 def find_latest_run(tensorboard_base_dir="./red_tensorboard"):
     """
-    Auto-detects the most recent PPO_N run folder, so you don't have to manually
-    update the folder number every time you re-run train_agent.py (SB3 increments
+    Auto-detects the most recent PPO_N run folder (SB3 increments
     it automatically: PPO_1, PPO_2, PPO_3, ...).
     """
     if not os.path.isdir(tensorboard_base_dir):

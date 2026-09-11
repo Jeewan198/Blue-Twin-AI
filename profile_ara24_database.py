@@ -35,7 +35,7 @@ def profile_excel_tabs(file_path):
 
             print(f"▪ Dimensions: {df.shape[0]} rows, {df.shape[1]} columns")
             print("▪ Core Columns Found:")
-            # Display first 5 columns as a preview
+            # Display first 5columns as a preview
             for col in df.columns[:5]:
                 print(f"  - {col}")
 

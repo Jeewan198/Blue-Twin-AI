@@ -37,7 +37,7 @@ def main():
     # ONLY from the reserved training rivers -- the held-out test_ids are never
     # seen during training, so evaluate_agent.py's results genuinely measure
     # generalisation to unseen rivers, not just performance on the training
-    # distribution (see Dr. Bane's feedback on standard evaluation procedure).
+    # distribution.
     env = REDEnv(csv_path="ARA24_Clean_Master_Enhanced.csv", max_steps=365,
                  normalize_reward_per_river=True, river_id_subset=train_ids)
     env = NormalizedActionWrapper(env)
