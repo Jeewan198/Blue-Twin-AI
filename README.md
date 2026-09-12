@@ -21,11 +21,13 @@ The system combines:
 
 ## Dataset
 
-This project uses the ARA24 Global Salinity Database:
+This project uses the ARA24 Global Salinity Database. The paper describing its methodology:
 
 > Álvarez-Silva, Ó., Roldan-Carvajal, M. and Arévalo, F. (2024) *Extended Assessment of the Globally Extractable Salinity Gradient Energy from River Mouths*. SSRN. Available at: https://dx.doi.org/10.2139/ssrn.5089286
 
-The raw dataset itself is not included in this repository. `clean_salinity_data.py` expects a copy of `SGE_Global_Database_ARA24.xlsx` to be present before it can run.
+The dataset itself is published separately on Mendeley Data: https://data.mendeley.com/datasets/wn9t2cswgv/2
+
+The raw database file (`SGE_Global_Database_ARA24.xlsx`) is included in this repository. `clean_salinity_data.py` reads it directly to produce the clean master CSV.
 
 ## Key Results
 
