@@ -19,6 +19,14 @@ The system combines:
 - A dataset of 1,078 real rivers (ARA24 Global Salinity Database) with monthly-resolution power potential and ecological extraction factors
 - A PPO agent trained and evaluated with a strict train/test split, ensuring evaluation measures genuine generalisation to unseen rivers
 
+## Dataset
+
+This project uses the ARA24 Global Salinity Database:
+
+> Álvarez-Silva, Ó., Roldan-Carvajal, M. and Arévalo, F. (2024) *Extended Assessment of the Globally Extractable Salinity Gradient Energy from River Mouths*. SSRN. Available at: https://dx.doi.org/10.2139/ssrn.5089286
+
+The raw dataset itself is not included in this repository. `clean_salinity_data.py` expects a copy of `SGE_Global_Database_ARA24.xlsx` to be present before it can run.
+
 ## Key Results
 
 Evaluated across all 129 held-out test rivers (full coverage verified):
@@ -119,6 +127,16 @@ python visualize_data.py        # Explore the raw dataset, independent of any tr
 python -m unittest test_red_physics.py -v   # Physics engine unit tests
 ```
 Neither of these depends on a trained checkpoint and can be run at any point after step 1.
+
+## Known Limitations
+
+- **Checkpoint selection**: the best-performing checkpoint was selected during training using an evaluation environment restricted to the training rivers, not the held-out test set. The final evaluation itself (Section 4 above) is unaffected and correctly uses only held-out test rivers, but the *process* that chose which checkpoint to evaluate did not. See the dissertation's Limitations chapter for the full explanation.
+- **Temperature**: modelled as an observation feature on sound physical grounds, but held fixed at a single constant value throughout the current implementation, so it provides no real day-to-day or river-to-river signal as built.
+- **Two-way rather than three-way data split**: `river_split.py` produces only a train/test split. A methodologically stricter setup would use a separate validation set for checkpoint selection, distinct from both training and the final held-out test set.
+- **Physics engine residual gap**: predicted power density exceeds REDstack's real measured output by a factor of roughly 1.4, even after applying a realistic membrane efficiency ceiling. The residual gap is attributed to concentration polarisation, membrane imperfections, and pumping losses not represented in the current model.
+- **Observation space not ablated**: the six observation features were selected based on physical relevance rather than validated through systematic ablation.
+
+Full detail on each of these, including how they were discovered and what they do and don't affect, is in the dissertation's Limitations chapter.
 
 ## License
 
